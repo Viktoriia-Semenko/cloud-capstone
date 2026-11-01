@@ -1,4 +1,70 @@
 # Milestone 1 
+
+## IAM Role analysis (Task 1)
+
+### Environment
+
+The project was completed in the AWS Academy Cloud Architecting Sandbox, in the `us-east-1` region.
+
+The assignment refers to `LabRole`, but this role wasn't found in the available IAM roles. The actual assumed role in this sandbox is `voclabs`. Therefore, the IAM permission analysis was performed using `voclabs`.
+
+### Role Identification
+
+The current identity was verified using AWS CLI:
+
+```bash
+aws sts get-caller-identity
+```
+<img width="654" height="205" alt="Screenshot 2026-11-01 at 15 17 26" src="https://github.com/user-attachments/assets/eeb1f6a8-1705-498c-be95-8b05ac1ee20f" />
+
+The returned ARN confirmed the assumed role `voclabs`
+
+### IAM Policies
+
+The following command was used to identify attached managed policies:
+
+```bash
+aws iam list-attached-role-policies --role-name voclabs
+```
+<img width="585" height="171" alt="Screenshot 2026-11-01 at 12 54 35" src="https://github.com/user-attachments/assets/b5fd1a4d-f411-4329-8343-6df028a4bf34" />
+
+**Result:** The managed policy `ReadOnlyAccess` was attached to the role
+
+Inline policies were checked using:
+
+```bash
+aws iam list-role-policies --role-name voclabs
+```
+<img width="465" height="121" alt="Screenshot 2026-11-01 at 12 59 45" src="https://github.com/user-attachments/assets/6983f480-e27e-482a-88a6-b65d2429d6c5" />
+
+**Result:** One inline policy was found: `Pvoclabs`.
+
+However, retrieving its content was denied.
+<img width="1401" height="128" alt="Screenshot 2026-11-01 at 13 01 30" src="https://github.com/user-attachments/assets/aa0325c8-ab4f-4113-a9e6-90be05415af7" />
+
+### Verified Permissions and Restrictions
+
+| AWS Action | Result | Verification Method |
+|---|---|---|
+| `sts:GetCallerIdentity` | Allowed | AWS CLI |
+| `iam:ListRoles` | Allowed | AWS Console |
+| `iam:ListAttachedRolePolicies` | Allowed | AWS CLI |
+| `iam:ListRolePolicies` | Allowed | AWS CLI |
+| `ec2:DescribeVpcs` | Allowed | AWS CLI |
+| `iam:GetRole` | Explicit Deny | AWS Console |
+| `iam:GetRolePolicy` | Explicit Deny | AWS CLI |
+
+### Analysis
+
+The `voclabs` role allows several operations for listing and viewing AWS resources. However, certain IAM operations are explicitly denied by identity-based policies. For example, attempting to retrieve details of an IAM role using `iam:GetRole` resulted in an explicit deny. Similarly, attempting to retrieve the inline policy `Pvoclabs` using `iam:GetRolePolicy` returned `AccessDenied`.
+The exact policy statement responsible for these denials could not be identified because access to the relevant policy content was restricted.
+
+### Conclusion
+
+The custom read-only IAM policy and assumable role required by Tasks 2 and 3 were defined separately in `infra/iam-readonly.yaml`. The template was successfully validated using AWS CloudFormation but wasn't deployed.
+
+---
+
 ## Service quotas (Task 6)
 
 The service quotas were reviewed in the AWS Academy Cloud Architecting Sandbox using AWS CLI in the `us-east-1` region.
