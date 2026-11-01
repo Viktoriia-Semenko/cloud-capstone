@@ -184,3 +184,41 @@ The network infrastructure was deployed using AWS CloudFormation in the `us-east
 ### Conclusion
 
 The network infrastructure was initially deployed using AWS CloudFormation. After deleting the stack, I successfully recreated it using the same YAML template and deployment command. Both deployments were automated, and no manual resource configuration was required. This demonstrates the reproducibility of my Infrastructure as Code approach.
+
+## AI Architecture Design Review
+
+**AI reviewer:** ChatGPT (GPT-6)  
+**Reviewed architecture:** AWS CloudFormation network stack in `us-east-1`
+
+### AI Critique 1: Single public subnet
+
+The network contains only one public subnet in `us-east-1a`, while the private subnets are distributed across two Availability Zones. This may limit high availability for future public-facing components, such as an Application Load Balancer.
+
+**AI recommendation:** consider adding a second public subnet in another Availability Zone if the future application requires multi-AZ public access.
+
+### AI Critique 2: No Outbound Internet Access for Private Subnets
+
+The private subnets have only local VPC routing, with no NAT Gateway or VPC endpoints.Future application instances may need outbound connectivity to download packages, access external services, or retrieve container images.
+
+**AI recommendation:** reconsider outbound connectivity when implementing Milestone 2, using NAT Gateway or appropriate VPC endpoints if required.
+
+### AI Critique 3: Monthly Cost Exceeds Available Credits
+
+The estimated cost of continuously running the proposed Milestone 2 infrastructure is $28.35 per month, exceeding the $20 sandbox credit ceiling. This creates a risk of exhausting available credits.
+
+**AI recommendation:** Run the infrastructure only during development and testing, monitor remaining credits, and remove resources when they are no longer required.
+
+### My review and secisions
+
+#### 1. Single Public Subnet - ACCEPT and postpone
+
+I agree with the AI critique that having only one public subnet may limit high availability in future milestones. However, Milestone 1 only requires a network with public and private subnets. Our current infrastructure meets this requirement, and we do not deploy a public-facing load balancer at this stage.
+
+#### 2. No Outbound Internet Access for Private Subnets - REJECT FOR MILESTONE 1
+
+I understand that private instances may need outbound internet access in future milestones. However, Milestone 1 explicitly requires private subnets for internal communication. Our private subnets have local VPC routing and do not require internet connectivity at this stage. Adding a NAT Gateway now would introduce unnecessary costs, especially considering the limited $20 sandbox budget.
+
+#### 3. Infrastructure Cost Exceeds Sandbox Credits - ACCEPT
+
+I agree with the AI critique that continuously running the proposed Milestone 2 infrastructure would exceed our sandbox budget.
+The estimated monthly cost is $28.35, while the available sandbox credit ceiling is $20. Since this is an educational project, the infrastructure doesnt need to run continuously. Our reduced-runtime estimate of 160 hours per month is approximately $7.71, excluding additional charges. I will run the infrastructure only during development and testing, monitor remaining credits, and stop or delete billable resources when they are not needed. I will also account for storage costs that continue while instances are stopped.
