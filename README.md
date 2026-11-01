@@ -86,3 +86,35 @@ The full-month infrastructure estimate exceeds the sandbox budget. Running the i
 - [AWS EC2 T3 Pricing](https://aws.amazon.com/ec2/instance-types/t3/)
 - [AWS EBS Pricing](https://aws.amazon.com/ebs/pricing/)
 - [AWS VPC and Public IPv4 Pricing](https://aws.amazon.com/vpc/pricing/)
+
+---
+
+## Infrastructure Reproducibility (Task 8)
+
+The network infrastructure was deployed using AWS CloudFormation in the `us-east-1` region.
+
+**Stack name:** `capstone-network`  
+**IaC template:** `infra/network.yaml`
+
+### Recreation еest
+
+1. The network stack was successfully deployed using CloudFormation.
+2. The stack was deleted using AWS CLI.
+3. After deletion completed, the same CloudFormation template was used to recreate the network.
+4. The recreation completed successfully
+
+### Results
+
+| Metric | Result |
+|---|---|
+| Initial deployment time | 66.336 seconds |
+| Recreation time | 36.284 seconds |
+| Recreation status | Successful |
+| Errors during recreation | None reported |
+<img width="470" height="197" alt="Screenshot 2026-11-01 at 15 01 24" src="https://github.com/user-attachments/assets/736845ae-46e7-41a8-b5bd-d7d79b103aa1" />
+<img width="679" height="343" alt="Screenshot 2026-11-01 at 15 01 29" src="https://github.com/user-attachments/assets/12a9ded7-a900-4ee5-9043-91a7035f756d" />
+
+
+### Conclusion
+
+The network infrastructure was initially deployed using AWS CloudFormation. After deleting the stack, I successfully recreated it using the same YAML template and deployment command. Both deployments were automated, and no manual resource configuration was required. This demonstrates the reproducibility of my Infrastructure as Code approach.
