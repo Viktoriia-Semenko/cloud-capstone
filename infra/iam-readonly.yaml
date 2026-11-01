@@ -1,0 +1,39 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Milestone 1 - Read-only IAM policy and role (template only)'
+
+Resources:
+
+  ReadOnlyPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: 'Read-only access to selected AWS resources'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - ec2:DescribeVpcs
+              - ec2:DescribeSubnets
+              - ec2:DescribeRouteTables
+              - ec2:DescribeInternetGateways
+              - ec2:DescribeSecurityGroups
+              - ec2:DescribeInstances
+              - ec2:DescribeAvailabilityZones
+              - cloudformation:DescribeStacks
+              - cloudformation:ListStacks
+            Resource: '*'
+
+  ReadOnlyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: 'Read-only role assumable by EC2'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref ReadOnlyPolicy
