@@ -1,0 +1,283 @@
+openapi: 3.0.3
+
+info:
+  title: Cloud Capstone Key-Value Store API
+  version: 1.0.0
+  description: REST API for the Milestone 2 sharded key-value store.
+
+servers:
+  - url: http://localhost:8000
+
+paths:
+  /tables:
+    post:
+      summary: Register a new table
+      operationId: registerTable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TableDefinition'
+      responses:
+        '201':
+          description: Table registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableDefinition'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidInput'
+
+  /tables/{table}/records:
+    post:
+      summary: Create a new record
+      operationId: createRecord
+      parameters:
+        - $ref: '#/components/parameters/TableName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordCreate'
+      responses:
+        '201':
+          description: Record created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidInput'
+        '503':
+          $ref: '#/components/responses/ShardUnavailable'
+
+  /tables/{table}/records/{key}:
+    parameters:
+      - $ref: '#/components/parameters/TableName'
+      - $ref: '#/components/parameters/RecordKey'
+
+    get:
+      summary: Read a record
+      operationId: readRecord
+      responses:
+        '200':
+          description: Record found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ShardUnavailable'
+
+    put:
+      summary: Update an existing record
+      operationId: updateRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValueUpdate'
+      responses:
+        '200':
+          description: Record updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/InvalidInput'
+        '503':
+          $ref: '#/components/responses/ShardUnavailable'
+
+    delete:
+      summary: Delete a record
+      operationId: deleteRecord
+      responses:
+        '204':
+          description: Record deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ShardUnavailable'
+
+  /tables/{table}/records/{key}/exists:
+    get:
+      summary: Check whether a record exists
+      operationId: recordExists
+      parameters:
+        - $ref: '#/components/parameters/TableName'
+        - $ref: '#/components/parameters/RecordKey'
+      responses:
+        '200':
+          description: Existence result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExistenceResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ShardUnavailable'
+
+  /shards/register:
+    post:
+      summary: Register a storage shard
+      operationId: registerShard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShardRegistration'
+      responses:
+        '201':
+          description: Shard registered successfully
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidInput'
+
+components:
+  parameters:
+    TableName:
+      name: table
+      in: path
+      required: true
+      schema:
+        type: string
+
+    RecordKey:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    TableDefinition:
+      type: object
+      required:
+        - name
+        - partition_key
+      properties:
+        name:
+          type: string
+          minLength: 1
+          example: students
+        partition_key:
+          type: string
+          minLength: 1
+          description: Name of the partition key field
+          example: student_id
+
+    RecordCreate:
+      type: object
+      required:
+        - key
+        - value
+      properties:
+        key:
+          type: string
+          minLength: 1
+          description: Value of the table's partition key
+          example: "101"
+        value:
+          type: object
+          additionalProperties: true
+          example:
+            name: Anna
+            subject: Computer Science
+
+    ValueUpdate:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          type: object
+          additionalProperties: true
+
+    Record:
+      type: object
+      required:
+        - key
+        - value
+      properties:
+        key:
+          type: string
+        value:
+          type: object
+          additionalProperties: true
+
+    ExistenceResult:
+      type: object
+      required:
+        - exists
+      properties:
+        exists:
+          type: boolean
+
+    ShardRegistration:
+      type: object
+      required:
+        - shard_id
+        - url
+      properties:
+        shard_id:
+          type: string
+          minLength: 1
+          example: shard-1
+        url:
+          type: string
+          format: uri
+          example: http://shard-1:8001
+
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+
+  responses:
+    NotFound:
+      description: Table or record not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Conflict:
+      description: Resource already exists or conflicts
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InvalidInput:
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    ShardUnavailable:
+      description: Responsible shard is unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
