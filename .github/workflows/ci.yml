@@ -1,0 +1,65 @@
+name: Milestone 2 CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run Python tests
+        run: python -m pytest -q
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: benchmark/ycsb-binding/pom.xml
+
+      - name: Start Docker services
+        run: docker compose up --build -d
+
+      - name: Check Coordinator health
+        run: |
+          for i in {1..20}; do
+            if curl -fsS http://localhost:8080/health; then
+              exit 0
+            fi
+            sleep 3
+          done
+          exit 1
+
+      - name: Run Java integration tests
+        env:
+          COORDINATOR_URL: http://localhost:8080
+        run: |
+          mvn -B -f benchmark/ycsb-binding/pom.xml clean test
+
+      - name: Show Docker logs on failure
+        if: failure()
+        run: docker compose logs --tail=100
+
+      - name: Stop Docker services
+        if: always()
+        run: docker compose down
