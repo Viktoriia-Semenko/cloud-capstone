@@ -145,6 +145,8 @@ paths:
       responses:
         '201':
           description: Shard registered successfully
+        '200':
+          description: Shard already registered with the same ID and URL
         '409':
           $ref: '#/components/responses/Conflict'
         '422':

@@ -1,7 +1,8 @@
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 
-from coordinator.main import app, tables, records
+from coordinator.main import app, tables, records, shards, hash_ring
 
 
 client = TestClient(app)
@@ -11,11 +12,15 @@ client = TestClient(app)
 def clear_storage():
     tables.clear()
     records.clear()
+    shards.clear()
+    hash_ring.clear()
 
     yield
 
     tables.clear()
     records.clear()
+    shards.clear()
+    hash_ring.clear()
 
 
 def test_register_table():
@@ -186,3 +191,183 @@ def test_create_record_errors():
         json={"key": "", "value": {"name": "Anna"}},
     )
     assert invalid.status_code == 422
+
+
+def test_shard_registration_updates_hash_ring():
+    shard_1 = {
+        "shard_id": "shard-1",
+        "url": "http://127.0.0.1:8001",
+    }
+
+    shard_2 = {
+        "shard_id": "shard-2",
+        "url": "http://127.0.0.1:8002",
+    }
+
+    response_1 = client.post(
+        "/shards/register",
+        json=shard_1,
+    )
+
+    assert response_1.status_code == 201
+    assert hash_ring.position_count == 100
+
+    response_2 = client.post(
+        "/shards/register",
+        json=shard_2,
+    )
+
+    assert response_2.status_code == 201
+    assert hash_ring.position_count == 200
+
+    assert len(shards) == 2
+
+    selected = hash_ring.get_shard("students", "101")
+
+    assert selected in {"shard-1", "shard-2"}
+
+    duplicate = client.post(
+        "/shards/register",
+        json=shard_1,
+    )
+
+    assert duplicate.status_code == 200
+    assert hash_ring.position_count == 200
+
+    conflict = client.post(
+        "/shards/register",
+        json={
+            "shard_id": "shard-1",
+            "url": "http://127.0.0.1:9999",
+        },
+    )
+
+    assert conflict.status_code == 409
+    assert hash_ring.position_count == 200
+
+
+def test_create_record_routes_to_correct_shard(monkeypatch):
+    client.post(
+        "/tables",
+        json={
+            "name": "students",
+            "partition_key": "student_id",
+        },
+    )
+
+    for shard_id, port in [
+        ("shard-1", 8001),
+        ("shard-2", 8002),
+    ]:
+        client.post(
+            "/shards/register",
+            json={
+                "shard_id": shard_id,
+                "url": f"http://127.0.0.1:{port}",
+            },
+        )
+
+    record = {
+        "key": "101",
+        "value": {"name": "Anna"},
+    }
+
+    expected_shard = hash_ring.get_shard(
+        "students", "101"
+    )
+
+    captured = {}
+
+    async def fake_post(self, url, **kwargs):
+        captured["url"] = url
+        captured["record"] = kwargs["json"]
+
+        return httpx.Response(
+            201,
+            json=kwargs["json"],
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(
+        httpx.AsyncClient, "post", fake_post
+    )
+
+    response = client.post(
+        "/tables/students/records",
+        json=record,
+    )
+
+    assert response.status_code == 201
+    assert response.json() == record
+
+    assert captured["url"] == (
+        f"{shards[expected_shard]}"
+        "/internal/tables/students/records"
+    )
+
+    assert captured["record"] == record
+
+    assert records["students"] == {}
+
+
+def test_read_record_routes_to_correct_shard(monkeypatch):
+    client.post(
+        "/tables",
+        json={
+            "name": "students",
+            "partition_key": "student_id",
+        },
+    )
+
+    for shard_id, port in [
+        ("shard-1", 8001),
+        ("shard-2", 8002),
+    ]:
+        client.post(
+            "/shards/register",
+            json={
+                "shard_id": shard_id,
+                "url": f"http://127.0.0.1:{port}",
+            },
+        )
+
+    record = {
+        "key": "202",
+        "value": {
+            "name": "Ivan",
+            "subject": "Economics",
+        },
+    }
+
+    expected_shard = hash_ring.get_shard(
+        "students", "202"
+    )
+
+    captured = {}
+
+    async def fake_get(self, url, **kwargs):
+        captured["url"] = url
+
+        return httpx.Response(
+            200,
+            json=record,
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(
+        httpx.AsyncClient, "get", fake_get
+    )
+
+    response = client.get(
+        "/tables/students/records/202"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == record
+
+    assert captured["url"] == (
+        f"{shards[expected_shard]}"
+        "/internal/tables/students/records/202"
+    )
+
+    assert records["students"] == {}
