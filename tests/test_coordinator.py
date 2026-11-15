@@ -371,3 +371,179 @@ def test_read_record_routes_to_correct_shard(monkeypatch):
     )
 
     assert records["students"] == {}
+
+
+def test_exists_routes_to_correct_shard(monkeypatch):
+    client.post(
+        "/tables",
+        json={
+            "name": "students",
+            "partition_key": "student_id",
+        },
+    )
+
+    for shard_id, port in [
+        ("shard-1", 8001),
+        ("shard-2", 8002),
+    ]:
+        client.post(
+            "/shards/register",
+            json={
+                "shard_id": shard_id,
+                "url": f"http://127.0.0.1:{port}",
+            },
+        )
+
+    expected_shard = hash_ring.get_shard(
+        "students", "101"
+    )
+
+    captured = {}
+
+    async def fake_get(self, url, **kwargs):
+        captured["url"] = url
+
+        return httpx.Response(
+            200,
+            json={"exists": True},
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(
+        httpx.AsyncClient, "get", fake_get
+    )
+
+    response = client.get(
+        "/tables/students/records/101/exists"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"exists": True}
+
+    assert captured["url"] == (
+        f"{shards[expected_shard]}"
+        "/internal/tables/students/records/101/exists"
+    )
+
+
+def test_update_routes_to_correct_shard(monkeypatch):
+    client.post(
+        "/tables",
+        json={
+            "name": "students",
+            "partition_key": "student_id",
+        },
+    )
+
+    for shard_id, port in [
+        ("shard-1", 8001),
+        ("shard-2", 8002),
+    ]:
+        client.post(
+            "/shards/register",
+            json={
+                "shard_id": shard_id,
+                "url": f"http://127.0.0.1:{port}",
+            },
+        )
+
+    record = {
+        "key": "301",
+        "value": {
+            "name": "Olena",
+            "subject": "Computer Science",
+        },
+    }
+
+    expected_shard = hash_ring.get_shard(
+        "students", "301"
+    )
+
+    captured = {}
+
+    async def fake_put(self, url, **kwargs):
+        captured["url"] = url
+        captured["body"] = kwargs["json"]
+
+        return httpx.Response(
+            200,
+            json=record,
+            request=httpx.Request("PUT", url),
+        )
+
+    monkeypatch.setattr(
+        httpx.AsyncClient, "put", fake_put
+    )
+
+    response = client.put(
+        "/tables/students/records/301",
+        json={"value": record["value"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == record
+
+    assert captured["url"] == (
+        f"{shards[expected_shard]}"
+        "/internal/tables/students/records/301"
+    )
+
+    assert captured["body"] == {
+        "value": record["value"]
+    }
+
+    assert records["students"] == {}
+
+
+def test_delete_routes_to_correct_shard(monkeypatch):
+    client.post(
+        "/tables",
+        json={
+            "name": "students",
+            "partition_key": "student_id",
+        },
+    )
+
+    for shard_id, port in [
+        ("shard-1", 8001),
+        ("shard-2", 8002),
+    ]:
+        client.post(
+            "/shards/register",
+            json={
+                "shard_id": shard_id,
+                "url": f"http://127.0.0.1:{port}",
+            },
+        )
+
+    expected_shard = hash_ring.get_shard(
+        "students", "301"
+    )
+
+    captured = {}
+
+    async def fake_delete(self, url, **kwargs):
+        captured["url"] = url
+
+        return httpx.Response(
+            204,
+            request=httpx.Request("DELETE", url),
+        )
+
+    monkeypatch.setattr(
+        httpx.AsyncClient, "delete", fake_delete
+    )
+
+    response = client.delete(
+        "/tables/students/records/301"
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+    assert captured["url"] == (
+        f"{shards[expected_shard]}"
+        "/internal/tables/students/records/301"
+    )
+
+    assert records["students"] == {}
