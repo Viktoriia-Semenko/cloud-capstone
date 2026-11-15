@@ -78,6 +78,13 @@ Resources:
           chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
           docker compose version
 
+          curl -fL --retry 3 \
+            https://github.com/docker/buildx/releases/download/v0.20.1/buildx-v0.20.1.linux-amd64 \
+            -o /usr/local/lib/docker/cli-plugins/docker-buildx
+
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+          docker buildx version
+
           mkdir -p /opt/cloud-capstone
 
           curl -fL --retry 3 \
