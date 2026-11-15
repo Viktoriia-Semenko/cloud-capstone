@@ -547,3 +547,44 @@ def test_delete_routes_to_correct_shard(monkeypatch):
     )
 
     assert records["students"] == {}
+
+
+def test_read_returns_503_when_shard_unavailable(monkeypatch):
+    client.post(
+        "/tables",
+        json={
+            "name": "students",
+            "partition_key": "student_id",
+        },
+    )
+
+    for shard_id, port in [
+        ("shard-1", 8001),
+        ("shard-2", 8002),
+    ]:
+        client.post(
+            "/shards/register",
+            json={
+                "shard_id": shard_id,
+                "url": f"http://127.0.0.1:{port}",
+            },
+        )
+
+    async def fake_get(self, url, **kwargs):
+        raise httpx.ConnectError(
+            "Connection refused",
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(
+        httpx.AsyncClient, "get", fake_get
+    )
+
+    response = client.get(
+        "/tables/students/records/101"
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Shard unavailable"
+    }
