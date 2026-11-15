@@ -19,6 +19,11 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
 
+  CodeRevision:
+    Type: String
+    Default: main
+    Description: Git commit or branch to deploy
+
 Resources:
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -88,7 +93,7 @@ Resources:
           mkdir -p /opt/cloud-capstone
 
           curl -fL --retry 3 \
-            https://github.com/Viktoriia-Semenko/cloud-capstone/archive/refs/heads/main.tar.gz \
+            https://github.com/Viktoriia-Semenko/cloud-capstone/archive/${CodeRevision}.tar.gz \
             -o /tmp/cloud-capstone.tar.gz
 
           tar -xzf /tmp/cloud-capstone.tar.gz \
