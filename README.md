@@ -222,3 +222,451 @@ I understand that private instances may need outbound internet access in future 
 
 I agree with the AI critique that continuously running the proposed Milestone 2 infrastructure would exceed our sandbox budget.
 The estimated monthly cost is $28.35, while the available sandbox credit ceiling is $20. Since this is an educational project, the infrastructure doesnt need to run continuously. Our reduced-runtime estimate of 160 hours per month is approximately $7.71, excluding additional charges. I will run the infrastructure only during development and testing, monitor remaining credits, and stop or delete billable resources when they are not needed. I will also account for storage costs that continue while instances are stopped.
+
+
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+
+# Milestone 2 — Sharding the Load
+
+## 1. Overview
+
+Milestone 2 extends the infrastructure developed in Milestone 1 with a sharded key-value store.
+
+The system consists of a Coordinator and two storage Shards. The Coordinator exposes a REST JSON API, manages table definitions and shard registration, and routes record operations using consistent hashing.
+
+**Implemented functionality:**
+
+- Table registration and record CRUD operations
+- Single-node mode when no shards are registered
+- Two storage shards with automatic startup registration
+- SHA-256 consistent hashing with 100 virtual nodes per shard
+- Docker Compose for local development
+- AWS deployment using CloudFormation
+- Automated Python and Java integration tests through GitHub Actions
+- YCSB Workload A and B performance benchmarking
+
+## 2. Architecture
+
+```text
+                 HTTP Client / YCSB
+                         |
+                         v
+                 Coordinator (FastAPI)
+                       :8080
+                         |
+                Consistent Hash Ring
+                         |
+                 +-------+-------+
+                 |               |
+                 v               v
+              Shard 1         Shard 2
+               :8001           :8002
+```
+
+The Coordinator calculates a hash from the table name and record key, then selects the responsible Shard using a consistent hashing ring.
+
+The system uses SHA-256 and 100 virtual nodes per physical shard (200 ring positions in total).
+
+Shards register with the Coordinator automatically during startup.
+
+Both reads and writes are routed to the selected Shard. Shard storage is currently in-memory.
+
+## 3. Project Structure
+
+```text
+api/                 OpenAPI specification
+coordinator/         REST API, routing and consistent hashing
+shard/               Internal key-value storage service
+infra/               AWS CloudFormation templates
+benchmark/           YCSB binding, workloads and results
+tests/               Python tests
+docs/adr/            Architecture Decision Records
+openspec/changes/    OpenSpec proposals and specifications
+.github/workflows/   GitHub Actions CI
+```
+
+## 4. Running Locally
+
+### Prerequisites
+
+- Docker and Docker Compose
+- Python 3.12 for local tests
+- Java 17 and Maven for YCSB
+
+Clone the repository:
+
+```bash
+git clone https://github.com/Viktoriia-Semenko/cloud-capstone.git
+cd cloud-capstone
+```
+
+Build and start the services:
+
+```bash
+docker compose up -d --build
+```
+
+Check container status:
+
+```bash
+docker compose ps
+```
+
+Verify the Coordinator:
+
+```bash
+curl http://localhost:8080/health
+```
+
+Expected response:
+
+```json
+{"status":"ok","service":"coordinator"}
+```
+
+Local service endpoints:
+
+| Service | Address |
+|---|---|
+| Coordinator | http://localhost:8080 |
+| Swagger UI | http://localhost:8080/docs |
+| Shard 1 | http://localhost:18001 |
+| Shard 2 | http://localhost:18002 |
+
+Shards are registered with the Coordinator on startup.
+
+To stop the application:
+
+```bash
+docker compose down
+```
+
+## 5. API Verification
+
+The Coordinator supports the following operations:
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/health` | Check Coordinator health |
+| POST | `/tables` | Register a table |
+| POST | `/tables/{table}/records` | Create a record |
+| GET | `/tables/{table}/records/{key}` | Read a record |
+| GET | `/tables/{table}/records/{key}/exists` | Check whether a record exists |
+| PUT | `/tables/{table}/records/{key}` | Replace a record's value |
+| DELETE | `/tables/{table}/records/{key}` | Delete a record |
+| POST | `/shards/register` | Register a storage Shard |
+
+### Example: Create a table
+
+```bash
+curl -X POST http://localhost:8080/tables \
+  -H "Content-Type: application/json" \
+  -d '{"name":"students","partition_key":"student_id"}'
+```
+
+Expected status: `201 Created`.
+
+### Create a record
+
+```bash
+curl -X POST http://localhost:8080/tables/students/records \
+  -H "Content-Type: application/json" \
+  -d '{"key":"101","value":{"name":"Anna","subject":"Math"}}'
+```
+
+Expected status: `201 Created`.
+
+### Read the record
+
+```bash
+curl http://localhost:8080/tables/students/records/101
+```
+
+Expected status: `200 OK`.
+
+### Update the record
+
+```bash
+curl -X PUT http://localhost:8080/tables/students/records/101 \
+  -H "Content-Type: application/json" \
+  -d '{"value":{"name":"Anna","subject":"Physics"}}'
+```
+
+Expected status: `200 OK`.
+
+### Delete the record
+
+```bash
+curl -i -X DELETE \
+  http://localhost:8080/tables/students/records/101
+```
+
+Expected status: `204 No Content`.
+
+Reading the deleted record should return `404 Not Found`.
+
+## 6. Sharding Verification
+
+The hashing algorithm assigns keys to Shards based on the table name and record key.
+
+For the configured ring:
+
+| Record | Assigned Shard |
+|---|---|
+| `students/101` | `shard-1` |
+| `students/103` | `shard-2` |
+
+These assignments were verified using the implementation in `coordinator/hash_ring.py`.
+
+To inspect storage directly during local development, first create both records through the Coordinator, then query the internal Shard endpoints:
+
+```bash
+curl http://localhost:18001/internal/tables/students/records/101
+```
+
+```bash
+curl http://localhost:18002/internal/tables/students/records/103
+```
+
+The expected records should be present on their assigned Shards. Requests to the other Shard should return `404`.
+
+In the AWS deployment, Shard ports are not publicly exposed.
+
+## 7. AWS Deployment
+
+The system was deployed in the AWS Academy Cloud Architecting Sandbox, in region `us-east-1`.
+
+### Infrastructure
+
+Two CloudFormation stacks are used:
+
+| Stack | Purpose |
+|---|---|
+| `capstone-network` | VPC, public/private subnets, internet gateway and routing |
+| `capstone-application` | EC2 instance and application Security Group |
+
+The application runs on one `t3.small` EC2 instance with Amazon Linux 2023.
+
+Docker Compose runs three containers:
+
+- Coordinator
+- Shard 1
+- Shard 2
+
+This is logical sharding on a shared host rather than physical separation across EC2 instances.
+
+The application Security Group permits inbound TCP port 8080 only from the configured client IPv4 CIDR.
+
+### Deployment method
+
+Infrastructure is defined in:
+
+```text
+infra/network.yaml
+infra/application.yaml
+```
+
+Deployment is performed using AWS CLI in CloudShell with the current Sandbox session's permissions.
+
+The CloudShell deployment helper is:
+
+```bash
+scripts/deploy-cloudshell.sh
+```
+
+Example invocation after obtaining the latest project files in CloudShell:
+
+```bash
+bash scripts/deploy-cloudshell.sh YOUR_PUBLIC_IPV4/32
+```
+
+Replace the placeholder with the current public IPv4 address of the client machine.
+
+The deployment helper is intended to deploy the network and application stacks without storing AWS credentials in GitHub. Its deployment behaviour must be validated in the active Sandbox session.
+
+EC2 User Data installs Docker, Docker Compose and Buildx, downloads the application from GitHub, and starts the containers.
+
+After deployment, retrieve `CoordinatorURL` from the `capstone-application` CloudFormation Outputs and verify:
+
+```bash
+curl http://EC2_PUBLIC_IP:8080/health
+```
+
+The `/health` request should be sent from the client IP permitted by the Security Group.
+
+**AWS Sandbox limitation:** resources may be removed when a Sandbox session ends. The infrastructure can be recreated from CloudFormation templates.
+
+### Cleanup
+
+To avoid unnecessary Sandbox costs, delete the application stack after testing:
+
+```bash
+aws cloudformation delete-stack \
+  --stack-name capstone-application \
+  --region us-east-1
+
+aws cloudformation wait stack-delete-complete \
+  --stack-name capstone-application \
+  --region us-east-1
+```
+
+The network stack can be retained for subsequent milestones.
+
+## 8. Testing and Continuous Integration
+
+### Python tests
+
+Run from the repository root:
+
+```bash
+python -m pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest -q
+```
+
+The Python test suite verifies API behaviour, consistent hashing, Shard registration and request routing.
+
+### Java YCSB integration tests
+
+Start the local Docker services first, then run:
+
+```bash
+COORDINATOR_URL=http://localhost:8080 \
+mvn -f benchmark/ycsb-binding/pom.xml clean test
+```
+
+The integration test verifies INSERT, READ, UPDATE and DELETE through the Java binding.
+
+### GitHub Actions CI
+
+Workflow: `.github/workflows/ci.yml`
+
+CI runs automatically on pushes to `main` and pull requests.
+
+It installs Python and Java dependencies, runs Python tests, starts Docker Compose, checks Coordinator health and executes Java integration tests.
+
+The GitHub Actions CI workflow was successfully executed during Milestone 2.
+
+### Deployment automation limitation
+
+GitHub-hosted deployment to AWS is not active because the project does not provide AWS credentials to GitHub Actions and the Academy Sandbox restricts IAM configuration.
+
+Instead, deployment is initiated from authenticated AWS CloudShell using Infrastructure as Code.
+
+Therefore, automated CI is verified, while fully automated GitHub-to-AWS CD remains an outstanding limitation.
+
+## 9. YCSB Performance Benchmark
+
+The project uses **YCSB 0.17.0** with a custom Java binding for the Coordinator REST API.
+
+Two workload profiles are implemented:
+
+| Workload | READ | UPDATE |
+|---|---:|---:|
+| A — Update-heavy | 50% | 50% |
+| B — Read-heavy | 95% | 5% |
+
+The benchmark uses full-record updates because the Coordinator's PUT operation replaces the record's value.
+
+SCAN is not supported by the current API.
+
+### Run a local smoke test
+
+```bash
+./benchmark/run-ycsb.sh http://localhost:8080 smoke
+```
+
+The smoke test uses 30 records and 20 measured operations per workload.
+
+### Run the AWS baseline
+
+After deploying the AWS application:
+
+```bash
+./benchmark/run-ycsb.sh http://EC2_PUBLIC_IP:8080 baseline
+```
+
+The baseline uses:
+
+- 1,000 records per workload
+- 1,000 measured operations per workload
+- One client thread
+- No target throughput limit
+
+### Milestone 2 baseline results
+
+Date: 15 November 2026
+
+| Metric | Workload A | Workload B |
+|---|---:|---:|
+| Throughput (ops/sec) | 3.99 | 3.26 |
+| READ operations | 506 | 957 |
+| UPDATE operations | 494 | 43 |
+| READ average latency (ms) | 254.90 | 306.75 |
+| READ p95 latency (ms) | 496.13 | 704.51 |
+| READ p99 latency (ms) | 867.33 | 1047.55 |
+| Failed measured operations | 0 | 0 |
+
+Both workloads completed successfully.
+
+The benchmark client ran on a MacBook and communicated with AWS over the public internet. The measurements therefore include network latency.
+
+These results form the baseline for comparisons in Milestones 3 and 5.
+
+Detailed results: `docs/m2-ycsb-baseline.md`
+
+Raw benchmark outputs: `benchmark/results/20261115T185738Z_baseline/`
+
+## 10. Architecture Decisions and Limitations
+
+Architecture Decision Records are located in `docs/adr/`.
+
+Key decisions include:
+
+- REST JSON API implemented with FastAPI
+- SHA-256 consistent hashing
+- 100 virtual nodes per Shard
+- String partition keys
+- Single-EC2 deployment topology for AWS Sandbox
+- Custom Java binding for YCSB benchmarking
+
+### Current limitations
+
+- All three services share a single EC2 instance.
+- Storage is in memory and is not durable.
+- The Coordinator is a single point of failure and potential bottleneck.
+- Replication and automatic data migration are not implemented.
+- Adding a Shard changes the hash ring but does not migrate existing records.
+- The API does not provide authentication or HTTPS.
+- AWS deployment is manually initiated from CloudShell.
+- Benchmark latency includes client-to-AWS network overhead.
+
+These limitations are intentional or documented trade-offs for the current milestone and provide a basis for future improvements.
+
+## 11. Changes Since Milestone 1
+
+Milestone 1 focused on IAM analysis, AWS network infrastructure, CloudFormation, service quotas and cost estimation.
+
+Milestone 2 adds:
+
+1. A functional REST key-value store.
+2. A Coordinator with consistent hashing.
+3. Two automatically registered storage Shards.
+4. Docker-based local and AWS application deployment.
+5. Automated unit and integration tests.
+6. GitHub Actions CI.
+7. A reproducible YCSB performance baseline.
+
+The existing Milestone 1 infrastructure is reused rather than replaced.
+
+## 12. Supporting Documentation
+
+- `api/openapi.yaml` — public API specification
+- `openspec/changes/m2-sharding-the-load/` — design proposal and requirements
+- `docs/adr/` — architectural decisions
+- `docs/m2-aws-verification.md` — AWS deployment and functional verification
+- `docs/m2-ycsb-baseline.md` — YCSB results and interpretation
+
+The implementation, benchmark configurations, IaC templates and recorded measurements provide evidence for the Milestone 2 defence.
