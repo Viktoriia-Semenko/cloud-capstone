@@ -40,3 +40,34 @@ The goal is to implement horizontal sharding, understand how consistent hashing 
 - **CI/CD:** introduce a deployment pipeline for future milestones.
 - **Documentation:** add architectural decision records, API specifications, deployment instructions, benchmark results, and AI design review.
 - **Scope:** replication, durability guarantees, and automated data rebalancing are outside the scope of Milestone 2.
+
+
+## AWS Deployment
+
+The Milestone 2 application will be deployed to AWS Academy
+Sandbox using AWS CloudFormation.
+
+The initial deployment will use a single EC2 t3.small instance
+running Amazon Linux 2023.
+
+Three independent Docker containers will run on the instance:
+- Coordinator
+- Shard 1
+- Shard 2
+
+The application infrastructure will be defined in a separate
+CloudFormation stack and will reuse the network created in
+Milestone 1.
+
+Only the Coordinator API will be exposed to clients. The Shards
+will communicate with the Coordinator through an internal
+Docker network.
+
+This approach reduces deployment complexity and cost while
+demonstrating logical sharding and consistent hashing.
+
+The deployment will not provide host-level fault isolation or
+persistent storage. These limitations are documented in ADR-007.
+
+CI/CD automation and YCSB benchmarking remain required
+deliverables of Milestone 2.

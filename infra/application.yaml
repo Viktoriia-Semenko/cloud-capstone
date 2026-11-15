@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Milestone 2 - Coordinator and two shards on EC2
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing Capstone VPC
+
+  PublicSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Existing public subnet
+
+  AllowedClientCidr:
+    Type: String
+    Description: Your public IPv4 address with /32
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow Coordinator API from approved client
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: !Ref AllowedClientCidr
+      Tags:
+        - Key: Name
+          Value: capstone-application-sg
+
+  ApplicationInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t3.small
+
+      NetworkInterfaces:
+        - DeviceIndex: "0"
+          AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          SubnetId: !Ref PublicSubnetId
+          GroupSet:
+            - !Ref AppSecurityGroup
+
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 16
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+
+      Tags:
+        - Key: Name
+          Value: capstone-m2-application
+
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          exec > >(tee -a /var/log/capstone-bootstrap.log) 2>&1
+
+          dnf install -y docker curl tar gzip
+          systemctl enable --now docker
+
+          mkdir -p /usr/local/lib/docker/cli-plugins
+
+          curl -fL --retry 3 \
+            https://github.com/docker/compose/releases/download/v5.6.1/docker-compose-linux-x86_64 \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+          docker compose version
+
+          mkdir -p /opt/cloud-capstone
+
+          curl -fL --retry 3 \
+            https://github.com/Viktoriia-Semenko/cloud-capstone/archive/refs/heads/main.tar.gz \
+            -o /tmp/cloud-capstone.tar.gz
+
+          tar -xzf /tmp/cloud-capstone.tar.gz \
+            -C /opt/cloud-capstone \
+            --strip-components=1
+
+          cd /opt/cloud-capstone
+
+          docker compose -f compose.aws.yaml up --build -d
+
+          docker compose -f compose.aws.yaml ps
+
+Outputs:
+  InstanceId:
+    Description: EC2 instance ID
+    Value: !Ref ApplicationInstance
+
+  PublicIp:
+    Description: EC2 public IPv4 address
+    Value: !GetAtt ApplicationInstance.PublicIp
+
+  CoordinatorURL:
+    Description: Coordinator API endpoint
+    Value: !Sub "http://${ApplicationInstance.PublicIp}:8080"
