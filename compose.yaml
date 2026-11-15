@@ -1,0 +1,67 @@
+services:
+  coordinator:
+    build: .
+    image: cloud-capstone:m2
+    command:
+      - python
+      - -m
+      - uvicorn
+      - coordinator.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+    ports:
+      - "8080:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  shard-1:
+    image: cloud-capstone:m2
+    command:
+      - python
+      - -m
+      - uvicorn
+      - shard.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8001"
+    environment:
+      SHARD_ID: shard-1
+      SHARD_URL: http://shard-1:8001
+      COORDINATOR_URL: http://coordinator:8000
+    ports:
+      - "18001:8001"
+    depends_on:
+      coordinator:
+        condition: service_healthy
+
+  shard-2:
+    image: cloud-capstone:m2
+    command:
+      - python
+      - -m
+      - uvicorn
+      - shard.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8002"
+    environment:
+      SHARD_ID: shard-2
+      SHARD_URL: http://shard-2:8002
+      COORDINATOR_URL: http://coordinator:8000
+    ports:
+      - "18002:8002"
+    depends_on:
+      coordinator:
+        condition: service_healthy
