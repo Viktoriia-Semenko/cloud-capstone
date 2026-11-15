@@ -3,3 +3,4 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 /benchmark/ycsb-binding/target/
+/benchmark/results/*_smoke/
